@@ -1,0 +1,6 @@
+# app
+noq
+
+# useless packages
+node_modules
+*.json
