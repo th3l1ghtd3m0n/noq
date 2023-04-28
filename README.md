@@ -6,7 +6,7 @@ Simple expression transformer that is not **[Coq](https://coq.inria.fr/)**
 
 To execute project, just run this:
 ```fish
-./MakeFile
+cargo run
 ```
 
 ## References
