@@ -1,12 +1,59 @@
 // O_o
 use std::fmt;
 use std::collections::HashMap;
+use std::iter::Peekable;
 
 #[derive(Debug, Clone, PartialEq)]
 enum Expr
 {
     Sym(String),
     Fun(String, Vec<Expr>),
+}
+
+impl Expr 
+{
+    fn parse_peekable(lexer: &mut Peekable<impl Iterator<Item=Token>>) -> Self
+    {
+        if let Some(name) = lexer.next()
+        {
+            match name.kind 
+            {
+                TokenKind::Sym => {
+                    if let Some(_) = lexer.next_if(|t| t.kind == TokenKind::OpenParen)
+                    {
+                        let mut args = Vec::new();
+                        if let Some(_) = lexer.next_if(|t| t.kind == TokenKind::CloseParen)
+                        {
+                            return Expr::Fun(name.text, args)
+                        }
+                        args.push(Self::parse_peekable(lexer));
+                        while let Some(_) = lexer.next_if(|t| t.kind == TokenKind::Comma)
+                        {
+                            args.push(Self::parse_peekable(lexer));
+                        }
+                        if lexer.next_if(|t| t.kind == TokenKind::CloseParen).is_none()
+                        {
+                            todo!("Expected close parent");
+                        }
+
+                        Expr::Fun(name.text, args)
+                    } else 
+                    {
+                        Expr::Sym(name.text)
+                    }
+                },
+                _ => todo!("Report expected symbol"),
+            }
+        } else 
+        {
+            todo!("Report EOF error")
+        }
+    }
+
+    fn parse(lexer: impl Iterator<Item=Token>) -> Self
+    {
+        Self::parse_peekable(&mut lexer.peekable())
+    }
 }
 
 impl fmt::Display for Expr
@@ -152,6 +199,7 @@ fn pattern_match(pattern: &Expr, value: &Expr) -> Option<Bindings>
     }
 }
 
+#[allow(unused_macros)]
 macro_rules! sym 
 {
     ($name:ident) => {
@@ -159,6 +207,7 @@ macro_rules! sym
     }
 }
 
+#[allow(unused_macros)]
 macro_rules! fun 
 {
     ($name:ident) => {
@@ -167,6 +216,45 @@ macro_rules! fun
     ($name:ident,$($args:expr),*) => {
         Expr::Fun(stringify!($name).to_string(), vec![$($args),*])
     }
+}
+
+macro_rules! fun_args 
+{
+    () => { vec![] };
+    ($name:ident) => {
+        vec![expr!($name)]
+    };
+
+    ($name:ident,$($rest:tt)*) => {
+        {
+            let mut t = vec![expr!($name)];
+            t.append(&mut fun_args!($($rest)*));
+            t
+        }
+    };
+
+    ($name:ident($($args:tt)*)) => {
+        vec![expr!($name($($args)*))]
+    };
+
+    ($name:ident($($args:tt)*),$($rest:tt)*) => {
+        {
+            let mut t = vec![expr!($name($($args)*))];
+            t.append(&mut fun_args!($($rest)*));
+            t
+        }
+    };
+}
+
+macro_rules! expr 
+{
+    ($name:ident) => {
+        Expr::Sym(stringify!($name).to_string())
+    };
+
+    ($name:ident($($args:tt)*)) => {
+        Expr::Fun(stringify!($name).to_string(), fun_args!($($args)*))
+    };
 }
 
 #[cfg(test)]
@@ -179,22 +267,101 @@ mod test
     {
         // swap(pair(a, b)) = pair(b, a)
         let swap = Rule {
-            head: fun!(swap, fun!(pair, sym!(a), sym!(b))),
-            body: fun!(pair, sym!(b), sym!(a)),
+            head: expr!(swap(pair(a, b))),
+            body: expr!(pair(b, a)),
         };
 
-        let input = fun!(foo, fun!(swap, 
-            fun!(pair, fun!(f, sym!(a)), 
-                fun!(g, sym!(b)))), fun!(swap,
-                    fun!(pair, fun!(q, sym!(c)), fun!(z, sym!(d)))));
+        let input = expr! {
+            foo(swap(pair(f(a), g(b))), 
+                swap(pair(q(c), z(d))))
+        }; 
 
-        let expected = fun!(foo, fun!(pair,
-            fun!(g, sym!(b)), fun!(f, sym!(a))),
-                fun!(pair, fun!(z, sym!(d)), fun!(q, sym!(c))));
+        let expected = expr! {
+            foo(pair(g(b), f(a)), 
+                pair(z(d), q(c)))
+        };
 
         assert_eq!(swap.apply_all(&input), expected);
     }
 }
 
+#[derive(Debug, PartialEq)]
+enum TokenKind
+{
+    Sym,
+    OpenParen,
+    CloseParen,
+    Comma,
+    Equals
+}
+
+#[derive(Debug)]
+struct Token
+{
+    kind: TokenKind,
+    text: String,
+}
+
+struct Lexer<Chars: Iterator<Item=char>>
+{
+    chars: Peekable<Chars>
+}
+
+impl <Chars: Iterator<Item=char>> Lexer<Chars>
+{
+    fn from_iter(chars: Chars) -> Self 
+    {
+        Self {chars: chars.peekable()}
+    }
+}
+
+impl<Chars: Iterator<Item=char>> Iterator for Lexer<Chars> 
+{
+    type Item = Token;
+
+    fn next(&mut self) -> Option<Token>
+    {
+        while let Some(_) = self.chars.next_if(|x| x.is_whitespace())
+        {}
+
+        if let Some(x) = self.chars.next()
+        {
+            let mut text = String::new();
+            text.push(x);
+            match x 
+            {
+                '(' => Some(Token { kind: TokenKind::OpenParen, text }),
+                ')' => Some(Token { kind: TokenKind::CloseParen, text }),
+                ',' => Some(Token { kind: TokenKind::Comma, text }),
+                '=' => Some(Token { kind: TokenKind::Equals, text }),
+                _ => {
+                    if !x.is_alphanumeric()
+                    {
+                        todo!("Report unexpected token properly starts with '{}'", x);
+                    }
+
+                    while let Some(x) = self.chars.next_if(|x| x.is_alphanumeric())
+                    {
+                        text.push(x)
+                    }
+
+                    Some(Token { kind: TokenKind::Sym, text })
+                }
+            }
+        } else
+        {
+            None
+        }
+    }
+}
+
 fn main()
-{}
+{
+    let source = "swap(pair(a, b))";
+    let swap = Rule 
+    {
+        head: expr!(swap(pair(a, b))),
+        body: expr!(pair(b, a)),
+    };
+    println!("{}", swap.apply_all(&Expr::parse(Lexer::from_iter(source.chars()))));
+}
