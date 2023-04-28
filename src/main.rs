@@ -1,4 +1,5 @@
 // O_o
+use std::io::{Write, stdin, stdout};
 use std::fmt;
 use std::collections::HashMap;
 use std::iter::Peekable;
@@ -357,11 +358,20 @@ impl<Chars: Iterator<Item=char>> Iterator for Lexer<Chars>
 
 fn main()
 {
-    let source = "swap(pair(a, b))";
     let swap = Rule 
     {
         head: expr!(swap(pair(a, b))),
         body: expr!(pair(b, a)),
     };
-    println!("{}", swap.apply_all(&Expr::parse(Lexer::from_iter(source.chars()))));
+    let mut command = String::new();
+    let mut quit = false;
+
+    while !quit 
+    {
+        command.clear();
+        print!("> ");
+        stdout().flush();
+        stdin().read_line(&mut command);
+        println!("{}", swap.apply_all(&Expr::parse(Lexer::from_iter(command.chars()))));
+    }
 }
