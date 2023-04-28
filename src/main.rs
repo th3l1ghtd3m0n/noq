@@ -152,50 +152,45 @@ fn pattern_match(pattern: &Expr, value: &Expr) -> Option<Bindings>
     }
 }
 
-#[derive(Debug)]
-enum TokenKind
+#[cfg(test)]
+mod test
 {
-    Sym(String),
-    OpenParen,
-    CloseParen,
-    Comma,
-    Equals,
-}
+    use super::*;
 
-#[derive(Debug)]
-struct Token 
-{
-    kind: TokenKind,
-    text: String,
-}
-
-struct Lexer<Chars: Iterator<Item=char>>
-{
-    chars: Peekable<Chars>
-}
-
-impl<Chars: Iterator<Item=char>> Lexer<Chars>
-{
-    fn from_iter(chars: Chars) -> Self
+    #[test]
+    pub fn rule_apply_all()
     {
-        Self { chars: chars.peekable() }
-    }
-}
+        use Expr::*;
+        // swap(pair(a, b)) = pair(b, a)
+        let swap = Rule {
+            head: Fun("swap".to_string(),
+                vec![Fun("pair".to_string(),
+                    vec![Sym("a".to_string()), Sym("b".to_string())])]),
+            body: Fun("pair".to_string(),
+                vec![Sym("b".to_string()), Sym("a".to_string())]),
+        };
 
-impl<Chars: Iterator<Item=char>> Iterator for Lexer<Chars>
-{
-    type Item = Token;
-    fn next(&mut self) -> Option<Token>
-    {
-        todo!()
+        let input = Fun("foo".to_string(),
+            vec![Fun("swap".to_string(),
+                vec![Fun("pair".to_string(),
+                    vec![Fun("f".to_string(), vec![Sym("a".to_string())]),
+                         Fun("g".to_string(), vec![Sym("b".to_string())])])]),
+                 Fun("swap".to_string(),
+                 vec![Fun("pair".to_string(),
+                    vec![Fun("q".to_string(), vec![Sym("c".to_string())]),
+                         Fun("z".to_string(), vec![Sym("d".to_string())])])])]);
+
+        let expected = Fun("foo".to_string(),
+                vec![Fun("pair".to_string(),
+                    vec![Fun("g".to_string(), vec![Sym("b".to_string())]),
+                         Fun("f".to_string(), vec![Sym("a".to_string())])]),
+                 Fun("pair".to_string(),
+                    vec![Fun("z".to_string(), vec![Sym("d".to_string())]),
+                         Fun("q".to_string(), vec![Sym("c".to_string())])])]);
+
+        assert_eq!(swap.apply_all(&input), expected);
     }
 }
 
 fn main()
-{
-    for token in Lexer::from_iter("swap(pair(a, b)) = pair(b, a)".chars())
-    {
-        println!("{:?}", token);
-    }
-}
-
+{}

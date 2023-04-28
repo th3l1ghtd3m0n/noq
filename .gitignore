@@ -1,6 +1,5 @@
-# app
-noq
-
+# added by cargo
+/target
 # useless packages
 node_modules
 *.json
