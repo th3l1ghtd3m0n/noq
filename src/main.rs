@@ -253,7 +253,8 @@ mod tests {
 struct Context
 {
     rules: HashMap<String, Rule>,
-    current_expr: Option<Expr>
+    current_expr: Option<Expr>,
+    quit: bool,
 }
 
 impl Context
@@ -264,7 +265,8 @@ impl Context
             .set(TokenKind::Rule)
             .set(TokenKind::Shape)
             .set(TokenKind::Apply)
-            .set(TokenKind::Done);
+            .set(TokenKind::Done)
+            .set(TokenKind::Quit);
         let keyword = expect_token_kind(lexer, expected_tokens)?;
         match keyword.kind
         {
@@ -282,7 +284,6 @@ impl Context
                     head,
                     body
                 };
-                println!("rule {}", &rule);
                 self.rules.insert(name.text, rule);
             }
             TokenKind::Shape => {
@@ -292,7 +293,7 @@ impl Context
                 }
 
                 let expr = Expr::parse(lexer)?;
-                println!("shaping {}", &expr);
+                println!(" => {}", &expr);
                 self.current_expr = Some(expr);
             },
             TokenKind::Apply => {
@@ -338,10 +339,19 @@ impl Context
                     return Err(Error::NoShapingInPlace(keyword.loc))
                 }
             }
+            TokenKind::Quit => {
+                self.quit = true;
+            }
             _ => unreachable!("Expected {} but got {}", expected_tokens, keyword.kind),
         }
         Ok(())
     }
+}
+
+fn eprint_repl_loc_cursor(prompt: &str, loc: &Loc)
+{
+    assert!(loc.row == 1);
+    eprintln!("{:>width$}^", "", width=prompt.len() + loc.col - 1);
 }
 
 fn main() {
@@ -358,7 +368,7 @@ fn main() {
             lexer.set_file_path(&file_path);
             lexer.peekable()
         };
-        while lexer.peek().expect("Completely exhausted lexer").kind != TokenKind::End
+        while !context.quit && lexer.peek().expect("Completely exhausted lexer").kind != TokenKind::End
         {
             if let Err(err) = context.process_command(&mut lexer)
             {
@@ -388,33 +398,45 @@ fn main() {
     {
         let mut command = String::new();
 
-        let prompt = "> ";
+        let default_prompt = " ⚝ > ";
+        let shaping_prompt = "> ";
+        let mut prompt: &str;
 
-        loop {
+        while !context.quit {
             command.clear();
+            if let Some(_) = &context.current_expr
+            {
+                prompt = shaping_prompt; 
+            } else
+            {
+                prompt = default_prompt;
+            }
             print!("{}", prompt);
             stdout().flush().unwrap();
             stdin().read_line(&mut command).unwrap();
-            let mut lexer = Lexer::from_iter(command.chars()).peekable();
+            let mut lexer = Lexer::from_iter(command.trim().chars()).peekable();
             let result = context.process_command(&mut lexer)
                 .and_then(|()| expect_token_kind(&mut lexer, TokenKindSet::single(TokenKind::End)));
             match result 
             {
                 Err(Error::UnexpectedToken(expected, actual)) => {
-                    eprintln!("{:>width$}^", "", width=prompt.len() + actual.loc.col);
+                    eprint_repl_loc_cursor(prompt, &actual.loc);
                     eprintln!("ERROR: expected {} but got {} '{}'", expected, actual.kind, actual.text)
                 }
                 Err(Error::RuleAlreadyExists(name, new_loc, _old_loc)) => {
-                    eprintln!("{:>width$}^", "", width=prompt.len() + new_loc.col);
+                    eprint_repl_loc_cursor(prompt, &new_loc);
                     eprintln!("ERROR: redefinition of existing rule {}", name);
                 }
                 Err(Error::AlreadyShaping(loc)) => {
+                    eprint_repl_loc_cursor(prompt, &loc);
                     eprintln!("ERROR: already shaping an expression. Finish the current shaping with {} first.", TokenKind::Done);
                 }
                 Err(Error::NoShapingInPlace(loc)) => {
+                    eprint_repl_loc_cursor(prompt, &loc);
                     eprintln!("ERROR: no shaping in place.");
                 }
                 Err(Error::RuleDoesNotExist(name, loc)) => {
+                    eprint_repl_loc_cursor(prompt, &loc);
                     eprintln!("ERROR: rule {} does not exist", name);
                 }
                 Ok(_) => {}

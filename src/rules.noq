@@ -1,4 +1,4 @@
-rule swap swap(pair(a, b)) = pair(b, a)
+rule swap swap(pair(a, b))    = pair(b, a)
 rule rot rot(triple(a, b, c)) = triple(c, a, b)
 shape swap(pair(f(a), g(b)))
     apply swap
