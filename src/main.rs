@@ -12,7 +12,8 @@ enum Expr
 
 enum Error
 {
-    UnexpectedToken(TokenKind, TokenKind),
+    UnexpectedToken(TokenKind, Token),
+    UnexpectedEOF(TokenKind),
 }
 
 impl Expr
@@ -43,22 +44,22 @@ impl Expr
                                 Ok(Expr::Fun(name.text, args))
                             } else
                             {
-                                Err(Error::UnexpectedToken(TokenKind::CloseParen, t.kind))
+                                Err(Error::UnexpectedToken(TokenKind::CloseParen, t.clone()))
                             }
                         } else
                         {
-                            Err(Error::UnexpectedToken(TokenKind::CloseParen, TokenKind::End))
+                            Err(Error::UnexpectedEOF(TokenKind::CloseParen))
                         }
                     } else
                     {
                         Ok(Expr::Sym(name.text))
                     }
                 },
-                _ => Err(Error::UnexpectedToken(TokenKind::Sym, name.kind))
+                _ => Err(Error::UnexpectedToken(TokenKind::Sym, name))
             }
         } else
         {
-            Err(Error::UnexpectedToken(TokenKind::Sym, TokenKind::End))
+            Err(Error::UnexpectedEOF(TokenKind::Sym))
         }
     }
 
@@ -281,7 +282,7 @@ enum TokenKind
     CloseParen,
     Comma,
     Equals,
-    End,
+    Invalid,
 }
 
 impl fmt::Display for TokenKind
@@ -292,16 +293,16 @@ impl fmt::Display for TokenKind
         match self
         {
             Sym => write!(f, "symbol"),
-            OpenParen => write!(f, "'('"),
-            CloseParen => write!(f, "')'"),
-            Comma => write!(f, "','"),
-            Equals => write!(f, "'='"),
-            End => write!(f, "end of input"),
+            OpenParen => write!(f, "open paren"),
+            CloseParen => write!(f, "close paren"),
+            Comma => write!(f, "comma"),
+            Equals => write!(f, "equals"),
+            Invalid => write!(f, "invalid token"),
         }
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Token
 {
     kind: TokenKind,
@@ -310,14 +311,15 @@ struct Token
 
 struct Lexer<Chars: Iterator<Item=char>>
 {
-    chars: Peekable<Chars>
+    chars: Peekable<Chars>,
+    invalid: bool
 }
 
 impl<Chars: Iterator<Item=char>> Lexer<Chars>
 {
     fn from_iter(chars: Chars) -> Self
     {
-        Self {chars: chars.peekable()}
+        Self { chars: chars.peekable(), invalid: false }
     }
 }
 
@@ -327,6 +329,8 @@ impl<Chars: Iterator<Item=char>> Iterator for Lexer<Chars>
 
     fn next(&mut self) -> Option<Token>
     {
+        if self.invalid { return None }
+
         while let Some(_) = self.chars.next_if(|x| x.is_whitespace())
         {}
 
@@ -343,14 +347,17 @@ impl<Chars: Iterator<Item=char>> Iterator for Lexer<Chars>
                 _ => {
                     if !x.is_alphanumeric()
                     {
-                        todo!("Report unexpected token properly starts with \"{}\"", x);
-                    }
-                    while let Some(x) = self.chars.next_if(|x| x.is_alphanumeric())
+                        self.invalid = true;
+                        Some(Token{kind: TokenKind::Invalid, text})
+                    } else
                     {
-                        text.push(x)
-                    }
+                        while let Some(x) = self.chars.next_if(|x| x.is_alphanumeric())
+                        {
+                            text.push(x)
+                        }
 
-                    Some(Token{ kind: TokenKind::Sym, text })
+                        Some(Token{ kind: TokenKind::Sym, text })
+                    }
                 }
             }
         } else
@@ -376,7 +383,8 @@ fn main()
         match Expr::parse(&mut Lexer::from_iter(command.chars()))
         {
             Ok(expr) => println!("{}", swap.apply_all(&expr)),
-            Err(Error::UnexpectedToken(expected, actual)) => println!("ERROR: expected {} but got {}", expected, actual),
+            Err(Error::UnexpectedToken(expected, actual)) => println!("ERROR: expected {} but got {} '{}'", expected, actual.kind, actual.text),
+            Err(Error::UnexpectedEOF(expected)) => println!("ERROR: expected {} but got nothing", expected),
         }
     }
 }
