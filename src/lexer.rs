@@ -159,8 +159,8 @@ impl<Chars: Iterator<Item=char>> Lexer<Chars> {
     fn loc(&self) -> Loc {
         Loc {
             file_path: self.file_path.clone(),
-            row: self.lnum,
-            col: self.cnum - self.bol,
+            row: self.lnum + 1,
+            col: self.cnum - self.bol + 1,
         }
     }
 
