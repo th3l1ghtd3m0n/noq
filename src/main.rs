@@ -1,23 +1,28 @@
-// O_o
-use std::io::{Write, stdin, stdout};
 use std::fmt;
 use std::collections::HashMap;
 use std::iter::Peekable;
+use std::io::{stdin, stdout, Write};
 
 #[derive(Debug, Clone, PartialEq)]
 enum Expr
 {
     Sym(String),
-    Fun(String, Vec<Expr>),
+    Fun(String, Vec<Expr>)
 }
 
-impl Expr 
+enum Error
 {
-    fn parse_peekable(lexer: &mut Peekable<impl Iterator<Item=Token>>) -> Self
+    UnexpectedToken(TokenKind, TokenKind),
+    UnexpectedEOF(TokenKind),
+}
+
+impl Expr
+{
+    fn parse_peekable(lexer: &mut Peekable<impl Iterator<Item=Token>>) -> Result<Self, Error>
     {
         if let Some(name) = lexer.next()
         {
-            match name.kind 
+            match name.kind
             {
                 TokenKind::Sym => {
                     if let Some(_) = lexer.next_if(|t| t.kind == TokenKind::OpenParen)
@@ -25,33 +30,40 @@ impl Expr
                         let mut args = Vec::new();
                         if let Some(_) = lexer.next_if(|t| t.kind == TokenKind::CloseParen)
                         {
-                            return Expr::Fun(name.text, args)
+                            return Ok(Expr::Fun(name.text, args))
                         }
-                        args.push(Self::parse_peekable(lexer));
+                        args.push(Self::parse_peekable(lexer)?);
                         while let Some(_) = lexer.next_if(|t| t.kind == TokenKind::Comma)
                         {
-                            args.push(Self::parse_peekable(lexer));
+                            args.push(Self::parse_peekable(lexer)?);
                         }
-                        if lexer.next_if(|t| t.kind == TokenKind::CloseParen).is_none()
+                        if let Some(t) = lexer.peek()
                         {
-                            todo!("Expected close parent");
+                            if t.kind == TokenKind::CloseParen
+                            {
+                                Ok(Expr::Fun(name.text, args))
+                            } else
+                            {
+                                Err(Error::UnexpectedToken(TokenKind::CloseParen, t.kind))
+                            }
+                        } else
+                        {
+                            Err(Error::UnexpectedEOF(TokenKind::CloseParen))
                         }
-
-                        Expr::Fun(name.text, args)
-                    } else 
+                    } else
                     {
-                        Expr::Sym(name.text)
+                        Ok(Expr::Sym(name.text))
                     }
                 },
-                _ => todo!("Report expected symbol"),
+                _ => Err(Error::UnexpectedToken(TokenKind::Sym, name.kind))
             }
-        } else 
+        } else
         {
-            todo!("Report EOF error")
+            Err(Error::UnexpectedEOF(TokenKind::Sym))
         }
     }
 
-    fn parse(lexer: impl Iterator<Item=Token>) -> Self
+    fn parse(lexer: &mut impl Iterator<Item=Token>) -> Result<Self, Error>
     {
         Self::parse_peekable(&mut lexer.peekable())
     }
@@ -72,7 +84,7 @@ impl fmt::Display for Expr
                     write!(f, "{}", arg)?;
                 }
                 write!(f, ")")
-            }
+            },
         }
     }
 }
@@ -92,10 +104,10 @@ fn substitute_bindings(bindings: &Bindings, expr: &Expr) -> Expr
         Sym(name) => {
             if let Some(value) = bindings.get(name)
             {
-                return value.clone();
+                value.clone()
             } else
             {
-                return expr.clone();
+                expr.clone()
             }
         },
         Fun(name, args) => {
@@ -110,7 +122,7 @@ fn substitute_bindings(bindings: &Bindings, expr: &Expr) -> Expr
             {
                 new_args.push(substitute_bindings(bindings, &arg))
             }
-            return Fun(new_name, new_args);
+            Fun(new_name, new_args)
         }
     }
 }
@@ -130,7 +142,7 @@ impl Rule
                 Sym(_) => expr.clone(),
                 Fun(name, args) => {
                     let mut new_args = Vec::new();
-                    for arg in args 
+                    for arg in args
                     {
                         new_args.push(self.apply_all(arg))
                     }
@@ -145,12 +157,11 @@ impl fmt::Display for Rule
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result
     {
-        write!(f, "{} => {}", self.head, self.body)
+        write!(f, "{} = {}", self.head, self.body)
     }
 }
 
 type Bindings = HashMap<String, Expr>;
-
 
 fn pattern_match(pattern: &Expr, value: &Expr) -> Option<Bindings>
 {
@@ -201,31 +212,12 @@ fn pattern_match(pattern: &Expr, value: &Expr) -> Option<Bindings>
 }
 
 #[allow(unused_macros)]
-macro_rules! sym 
-{
-    ($name:ident) => {
-        Expr::Sym(stringify!($name).to_string())
-    }
-}
-
-#[allow(unused_macros)]
-macro_rules! fun 
-{
-    ($name:ident) => {
-        Expr::Fun(stringify!($name).to_string(), vec![])
-    };
-    ($name:ident,$($args:expr),*) => {
-        Expr::Fun(stringify!($name).to_string(), vec![$($args),*])
-    }
-}
-
-macro_rules! fun_args 
+macro_rules! fun_args
 {
     () => { vec![] };
     ($name:ident) => {
         vec![expr!($name)]
     };
-
     ($name:ident,$($rest:tt)*) => {
         {
             let mut t = vec![expr!($name)];
@@ -233,52 +225,48 @@ macro_rules! fun_args
             t
         }
     };
-
     ($name:ident($($args:tt)*)) => {
         vec![expr!($name($($args)*))]
     };
-
     ($name:ident($($args:tt)*),$($rest:tt)*) => {
         {
             let mut t = vec![expr!($name($($args)*))];
             t.append(&mut fun_args!($($rest)*));
             t
         }
-    };
+    }
 }
 
-macro_rules! expr 
+#[allow(unused_macros)]
+macro_rules! expr
 {
     ($name:ident) => {
         Expr::Sym(stringify!($name).to_string())
     };
-
     ($name:ident($($args:tt)*)) => {
         Expr::Fun(stringify!($name).to_string(), fun_args!($($args)*))
     };
 }
 
 #[cfg(test)]
-mod test
+mod tests
 {
     use super::*;
 
     #[test]
     pub fn rule_apply_all()
     {
-        // swap(pair(a, b)) = pair(b, a)
         let swap = Rule {
             head: expr!(swap(pair(a, b))),
             body: expr!(pair(b, a)),
         };
 
-        let input = expr! {
-            foo(swap(pair(f(a), g(b))), 
+        let input = expr!{
+            foo(swap(pair(f(a), g(b))),
                 swap(pair(q(c), z(d))))
-        }; 
-
+        };
         let expected = expr! {
-            foo(pair(g(b), f(a)), 
+            foo(pair(g(b), f(a)),
                 pair(z(d), q(c)))
         };
 
@@ -286,14 +274,30 @@ mod test
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 enum TokenKind
 {
     Sym,
     OpenParen,
     CloseParen,
     Comma,
-    Equals
+    Equals,
+}
+
+impl fmt::Display for TokenKind
+{
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result
+    {
+        use TokenKind::*;
+        match self
+        {
+            Sym => write!(f, "symbol"),
+            OpenParen => write!(f, "'('"),
+            CloseParen => write!(f, "')'"),
+            Comma => write!(f, "','"),
+            Equals => write!(f, "'='"),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -308,15 +312,15 @@ struct Lexer<Chars: Iterator<Item=char>>
     chars: Peekable<Chars>
 }
 
-impl <Chars: Iterator<Item=char>> Lexer<Chars>
+impl<Chars: Iterator<Item=char>> Lexer<Chars>
 {
-    fn from_iter(chars: Chars) -> Self 
+    fn from_iter(chars: Chars) -> Self
     {
         Self {chars: chars.peekable()}
     }
 }
 
-impl<Chars: Iterator<Item=char>> Iterator for Lexer<Chars> 
+impl<Chars: Iterator<Item=char>> Iterator for Lexer<Chars>
 {
     type Item = Token;
 
@@ -329,24 +333,23 @@ impl<Chars: Iterator<Item=char>> Iterator for Lexer<Chars>
         {
             let mut text = String::new();
             text.push(x);
-            match x 
+            match x
             {
-                '(' => Some(Token { kind: TokenKind::OpenParen, text }),
-                ')' => Some(Token { kind: TokenKind::CloseParen, text }),
-                ',' => Some(Token { kind: TokenKind::Comma, text }),
-                '=' => Some(Token { kind: TokenKind::Equals, text }),
+                '(' => Some(Token {kind: TokenKind::OpenParen, text}),
+                ')' => Some(Token {kind: TokenKind::CloseParen, text}),
+                ',' => Some(Token {kind: TokenKind::Comma, text}),
+                '=' => Some(Token {kind: TokenKind::Equals, text}),
                 _ => {
                     if !x.is_alphanumeric()
                     {
-                        todo!("Report unexpected token properly starts with '{}'", x);
+                        todo!("Report unexpected token properly starts with \"{}\"", x);
                     }
-
                     while let Some(x) = self.chars.next_if(|x| x.is_alphanumeric())
                     {
                         text.push(x)
                     }
 
-                    Some(Token { kind: TokenKind::Sym, text })
+                    Some(Token{ kind: TokenKind::Sym, text })
                 }
             }
         } else
@@ -358,20 +361,22 @@ impl<Chars: Iterator<Item=char>> Iterator for Lexer<Chars>
 
 fn main()
 {
-    let swap = Rule 
-    {
+    let swap = Rule {
         head: expr!(swap(pair(a, b))),
         body: expr!(pair(b, a)),
     };
     let mut command = String::new();
-    let mut quit = false;
 
-    while !quit 
-    {
+    loop {
         command.clear();
         print!("> ");
-        stdout().flush();
-        stdin().read_line(&mut command);
-        println!("{}", swap.apply_all(&Expr::parse(Lexer::from_iter(command.chars()))));
+        stdout().flush().unwrap();
+        stdin().read_line(&mut command).unwrap();
+        match Expr::parse(&mut Lexer::from_iter(command.chars()))
+        {
+            Ok(expr) => println!("{}", swap.apply_all(&expr)),
+            Err(Error::UnexpectedToken(expected, actual)) => println!("ERROR: expected {} but got {}", expected, actual),
+            Err(Error::UnexpectedEOF(expected)) => println!("ERROR: expected {} but got nothing", expected),
+        }
     }
 }
